@@ -1,4 +1,4 @@
-## Continuous deployment using Jenking via Ansible
+## Continuous deployment using Jenkins via Ansible
 We have a webiste created on PHP. 
 If we want to make any updates on contents, what we do on AWS was we need to create new launch configuration and new instances are needed to be created with the new contents. After that we need to terminate the intances created with old lauch configuration by adjusting ASG's deletion policy. 
 
@@ -36,6 +36,11 @@ Go to our repository  > settings > webhooks <Add the jenkins machine IP>/<someth
 > Note: The webhook link should be added so that it should be like <IP>/work-webhook
 
 ## Deployment
+ 
+#### Work flow:
+ 
+ ![alt text](https://i.ibb.co/jGNkvpS/Screenshot-364.png)
+
 
 The code to deploy contents will be:
  
