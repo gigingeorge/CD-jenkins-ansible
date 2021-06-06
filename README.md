@@ -37,9 +37,37 @@ Go to our repository  > settings > webhooks <Add the jenkins machine IP>/<someth
 
 ## Deployment
 
-The code to deploy contents will be
+The code to deploy contents will be:
+ 
+ > Note: Here I used the playbook create launch configuration, auto scaling group, load balancer. 
+ If you have an existing setup, you can gather informations using  ec2_instance_info:
+ ```sh
+ ec2_instance_info:
+        aws_access_key: "{{ access_key }}"
+        aws_secret_key: "{{ secret_key }}"
+        region: "ap-south-1"
+        filters:
+          "tag:aws:autoscaling:groupName": myapp-asg
+          instance-state-name: [ "running"]
+      register: asg_info
+ ```
 
+ 
+ Now let check, how to work with my playbook
+ 
 ```sh
+ 
+  - name: Adding the instances to load balancer
+    ec2_elb:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      state: present
+      ec2_elbs: "{{aws_elb}}"
+      region: "{{region}}"
+      instance_id: "{{item.instance_id}}"
+    with_items:
+    - "{{asg_info.instances}}"
+ 
 - name: "updating ASG"
   hosts: newasg
   become: true
