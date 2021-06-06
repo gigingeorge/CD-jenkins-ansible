@@ -1,0 +1,167 @@
+---
+- name: "Creating AWS instance using Ansible"
+  hosts: localhost
+  vars_files:
+  - access_key.vars
+  vars:
+    key_name: "ansible-key"
+  tasks:
+  - name: "creating key pair"
+    ec2_key:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      region: "{{ region }}"
+      name: "{{ key_name }}"
+      state:  present
+    register: keypair
+  - name: "copying Private Key"
+    when: keypair.changed == true
+    copy:
+      content: "{{keypair.key.private_key}}"
+      dest: "{{ key_name}}.pem"
+      mode: 0400
+  - name: "creating security group"
+    ec2_group:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      name: ansible-sg
+      tags: 
+        Name: "SG"
+      description: sg using ansible
+      region: "{{region}}" 
+      rules:
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+    register: sggroup
+  - name: Creating launch configuration
+    ec2_lc:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      name: "{{my_lc}}"
+      image_id: ami-010aff33ed5991201
+      key_name: "{{ key_name }}"
+      region: "{{ region }}"
+      instance_type: t2.micro
+      security_groups: [ "{{sggroup.group_id}}"]
+      user_data_path: "{{ user_data}}"
+    register: mylc
+  - name: setup classic load balancer
+    ec2_elb_lb:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      name: "{{aws_elb}}"
+      state: present
+      region: "{{ region }}"
+      zones:
+          - ap-south-1a
+      listeners:
+      - protocol: http
+        load_balancer_port: 80
+        instance_port: 80
+      health_check:
+        ping_protocol: http 
+        ping_port: 80
+        ping_path: "/health.php" 
+        response_timeout: 5 
+        interval: 10 
+        unhealthy_threshold: 2
+        healthy_threshold: 2
+  - name : ec2_asg
+    ec2_asg:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      name: myasg
+      launch_config_name: "{{my_lc}}"
+      health_check_period: 30
+      min_size: 2
+      max_size: 2
+      desired_capacity:  2
+      region: "{{region}}"
+      load_balancers:
+      - "{{aws_elb}}"
+      tags: 
+       - Name: myasg
+    register: myasg
+  - name: facts
+    ec2_instance_info:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      region: "{{region}}"
+      filters:
+        "tag:aws:autoscaling:groupName": myasg
+        instance-state-name: [ "running" ]
+    register: asg_info
+  - name: pause to make EC2 up"
+    when: myasg.changed == true
+    pause:
+      seconds: 30 
+  - name: adding elb
+    ec2_elb:
+      access_key: "{{access_key}}"
+      secret_key: "{{secret_key}}"
+      state: present
+      ec2_elbs: "{{aws_elb}}"
+      region: "{{region}}"
+      instance_id: "{{item.instance_id}}"
+    with_items:
+    - "{{asg_info.instances}}"
+  - name: Creating inventory
+    add_host: 
+      host: "{{ item.public_ip_address }}"
+      groupname: newasg
+      ansible_host: "{{ item.public_ip_address }}"
+      ansible_port: 22
+      ansible_user: "ec2-user"
+      ansible_ssh_private_key_file: "{{key_name}}.pem"
+      ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+    with_items:
+    - "{{ asg_info.instances }}"
+- name: "updating ASG"
+  hosts: newasg
+  become: true
+  serial: 1
+  vars:
+    git_url: "https://github.com/gigingeorge/aws-elb-site.git"
+    owner: "apache"
+    group: "apache"
+  tasks:
+    - name: "downloading from git"
+      git:
+        repo: "{{git_url}}"
+        dest: /var/myweb/
+      register: git_status
+    - name: "disabling health check"
+      when: git_status.changed == true
+      file:
+        path: "/var/www/html/health.php"
+        state: touch
+        mode: 0000
+    - name: Pause to offload from elb
+      when: git_status.changed == true
+      pause:
+        seconds: 25
+    - name: copying contents
+      when: git_status.changed == true
+      copy:
+        src: /var/myweb/
+        dest: /var/www/html/
+        owner: "{{owner}}"
+        group: "{{group}}"
+        remote_src: true
+    - name: "Enabling health check"
+      when: git_status.changed == true
+      file:
+        path: "/var/www/html/health.php"
+        state: touch
+        mode: 0444
+    - name: Pause to  load to elb
+      when: git_status.changed == true
+      pause:
+        seconds: 25
+
