@@ -1,5 +1,5 @@
 ---
-- name: "Creating AWS instance using Ansible"
+- name: "Continuous deployment using Jenkins via Ansible"
   hosts: localhost
   vars_files:
   - access_key.vars
@@ -59,7 +59,7 @@
       state: present
       region: "{{ region }}"
       zones:
-          - ap-south-1a
+      - ap-south-1a
       listeners:
       - protocol: http
         load_balancer_port: 80
